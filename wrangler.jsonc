@@ -7,6 +7,6 @@
   "d1_databases": [{
     "binding":"DB",
     "database_name":"eprtrack-db",
-    "database_id":"REPLACE_WITH_D1_DATABASE_ID"
+    "database_id":"54e61ed6-f050-4be5-a13b-4fa7286cc8fd"
   }]
 }
