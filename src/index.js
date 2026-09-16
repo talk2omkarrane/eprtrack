@@ -8,8 +8,18 @@ export default {
     }
     if (url.pathname === "/api/calculator" && request.method === "POST") {
       const body=await request.json(), category=String(body.category||"").toUpperCase(), tonnes=Number(body.tonnes);
-      const rules=await fetch(new URL("/rules.json",request.url)).then(r=>r.json());
-      if (!["I","II","III","IV"].includes(category)||!Number.isFinite(tonnes)||tonnes<0)
+const rulesResponse = await env.ASSETS.fetch(
+  new URL("/rules.json", request.url)
+);
+
+if (!rulesResponse.ok) {
+  return Response.json(
+    { error: "EPR rules data could not be loaded." },
+    { status: 500 }
+  );
+}
+
+const rules = await rulesResponse.json();      if (!["I","II","III","IV"].includes(category)||!Number.isFinite(tonnes)||tonnes<0)
         return Response.json({error:"Enter a valid category and non-negative plastic quantity."},{status:400});
       const rate=rules.recycled_content_rate[category], minimum=rules.minimum_recycling_of_applicable_target[category];
       return Response.json({
