@@ -1,35 +1,6 @@
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    if (url.pathname === "/api/health") return Response.json({ok:true,service:"eprtrack"});
-    if (url.pathname === "/api/plans") {
-      const {results}=await env.DB.prepare("SELECT code,name,monthly_price_inr FROM plans WHERE active=1 ORDER BY monthly_price_inr").all();
-      return Response.json({plans:results});
-    }
-    if (url.pathname === "/api/calculator" && request.method === "POST") {
-      const body=await request.json(), category=String(body.category||"").toUpperCase(), tonnes=Number(body.tonnes);
-const rulesResponse = await env.ASSETS.fetch(
-  new URL("/rules.json", request.url)
-);
-
-if (!rulesResponse.ok) {
-  return Response.json(
-    { error: "EPR rules data could not be loaded." },
-    { status: 500 }
-  );
-}
-
-const rules = await rulesResponse.json();      if (!["I","II","III","IV"].includes(category)||!Number.isFinite(tonnes)||tonnes<0)
-        return Response.json({error:"Enter a valid category and non-negative plastic quantity."},{status:400});
-      const rate=rules.recycled_content_rate[category], minimum=rules.minimum_recycling_of_applicable_target[category];
-      return Response.json({
-        fy:"2026-27",category,input_tonnes:tonnes,recycled_content_rate:rate,
-        indicative_recycled_content_tonnes:rate==null?null:tonnes*rate,
-        minimum_recycling_rate_of_applicable_target:minimum,
-        rule_version:rules.version,source:rules.source,verified_on:rules.verified_on,
-        disclaimer:"Indicative planning calculation only. It is not an official CPCB filing or determination of legal applicability."
-      });
-    }
-    return env.ASSETS.fetch(request);
-  }
-};
+export default {async fetch(request,env){const u=new URL(request.url);
+if(u.pathname==="/api/health")return Response.json({ok:true,service:"eprtrack"});
+if(u.pathname==="/api/calculator"&&request.method==="POST"){const b=await request.json(),role=String(b.role||"").toLowerCase(),cat=String(b.category||"").toUpperCase(),tonnes=Number(b.tonnes);if(!["producer","importer","brand-owner"].includes(role)||!["I","II","III","IV"].includes(cat)||!Number.isFinite(tonnes)||tonnes<0)return Response.json({error:"Enter a valid role, category and quantity."},{status:400});const rr=await env.ASSETS.fetch(new URL("/rules.json",request.url));if(!rr.ok)return Response.json({error:"EPR rules data could not be loaded."},{status:500});const rules=await rr.json(),rate=rules.recycled_content_rate[cat],labels={producer:"Producer",importer:"Importer","brand-owner":"Brand Owner"};return Response.json({fy:"2026-27",role,role_label:labels[role],category:cat,input_tonnes:tonnes,recycled_content_rate:rate,indicative_recycled_content_tonnes:rate==null?null:tonnes*rate,minimum_recycling_rate_of_applicable_target:rules.minimum_recycling_of_applicable_target[cat],rule_version:rules.version,source:rules.source,verified_on:rules.verified_on});}
+if(u.pathname==="/robots.txt")return new Response(`User-agent: *\nAllow: /\nSitemap: ${u.origin}/sitemap.xml\n`,{headers:{"content-type":"text/plain"}});
+if(u.pathname==="/sitemap.xml"){const paths=["/","/calculator/","/calculator/producer/","/calculator/importer/","/calculator/brand-owner/","/calculator/d2c/","/guides/epr-compliance/","/guides/plastic-epr/","/guides/epr-target/","/blog/","/blog/plastic-epr-calculator/","/blog/how-is-epr-calculated/","/blog/plastic-epr-target/","/blog/epr-compliance-guide/","/pricing/","/faq/","/about/","/privacy/","/terms/"];return new Response(`<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${paths.map(p=>`<url><loc>${u.origin}${p}</loc></url>`).join("")}</urlset>`,{headers:{"content-type":"application/xml"}})}
+return env.ASSETS.fetch(request)}}
