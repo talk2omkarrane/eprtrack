@@ -35,3 +35,12 @@ If your production D1 schema differs, stop before deployment and reconcile the s
 - API endpoints require a bearer session except registration, login, logout, health, and the public calculator.
 - Company ownership is checked before reading/writing compliance records.
 - This V3 still uses localStorage for the bearer token; before a larger production rollout, consider migrating to secure HttpOnly cookie sessions with CSRF protection.
+
+
+## Authentication security
+- Passwords are never stored in plaintext. They are stored as PBKDF2-HMAC-SHA-256 hashes with a unique 128-bit salt and 600,000 iterations.
+- Sessions use 256-bit cryptographically random identifiers stored server-side in D1.
+- The browser receives only a Secure, HttpOnly, SameSite=Strict session cookie; no authentication token is stored in localStorage.
+- D1 encrypts stored data at rest and Cloudflare Workers-to-D1 traffic uses TLS.
+- Authenticated state-changing API requests enforce same-origin requests.
+- This is an application-level baseline, not a substitute for production rate limiting, email verification, password reset/recovery, monitoring, or Cloudflare WAF/rate limiting.

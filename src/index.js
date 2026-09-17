@@ -1,5 +1,5 @@
 const CORS={"access-control-allow-origin":"*","access-control-allow-headers":"content-type,authorization","access-control-allow-methods":"GET,POST,PUT,DELETE,OPTIONS"};
-const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json",...CORS}});
+const json=(data,status=200,extra={})=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json",...CORS,...extra}});
 const enc=new TextEncoder();
 const roles=new Set(["producer","importer","brand-owner"]);
 const labels={producer:"Producer",importer:"Importer","brand-owner":"Brand Owner"};
@@ -7,7 +7,7 @@ function hex(bytes){return [...new Uint8Array(bytes)].map(x=>x.toString(16).padS
 async function hashPassword(password,saltHex){
   const salt=saltHex?Uint8Array.from(saltHex.match(/../g).map(x=>parseInt(x,16))):crypto.getRandomValues(new Uint8Array(16));
   const key=await crypto.subtle.importKey("raw",enc.encode(password),"PBKDF2",false,["deriveBits"]);
-  const bits=await crypto.subtle.deriveBits({name:"PBKDF2",salt,iterations:120000,hash:"SHA-256"},key,256);
+  const bits=await crypto.subtle.deriveBits({name:"PBKDF2",salt,iterations:600000,hash:"SHA-256"},key,256);
   return `${hex(salt)}:${hex(bits)}`;
 }
 async function verifyPassword(password,stored){
@@ -15,11 +15,15 @@ async function verifyPassword(password,stored){
   const [,digest]=await hashPassword(password,stored.split(":")[0]);
   return digest===stored.split(":")[1];
 }
-function token(){return crypto.randomUUID()+"."+crypto.randomUUID()}
+function token(){const bytes=new Uint8Array(32);crypto.getRandomValues(bytes);return hex(bytes)}
+function sessionCookie(value,maxAge=2592000){return `eprtrack_session=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Strict`}
+function clearSessionCookie(){return "eprtrack_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict"}
+function cookieValue(request,name){const raw=request.headers.get("cookie")||"";for(const part of raw.split(";")){const [k,...v]=part.trim().split("=");if(k===name)return v.join("=")}return null}
+function sameOrigin(request){const origin=request.headers.get("origin");return !origin||origin===new URL(request.url).origin}
 async function auth(request,env){
-  const h=request.headers.get("authorization")||"";
-  if(!h.startsWith("Bearer "))return null;
-  return (await env.DB.prepare("SELECT u.id,u.email FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.expires_at>datetime('now')").bind(h.slice(7)).first())||null;
+  const sid=cookieValue(request,"eprtrack_session");
+  if(!sid)return null;
+  return (await env.DB.prepare("SELECT u.id,u.email FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.expires_at>datetime('now')").bind(sid).first())||null;
 }
 async function rules(env,request){
   const r=await env.ASSETS.fetch(new URL("/rules.json",request.url));
@@ -33,7 +37,7 @@ export default {async fetch(request,env){
   if(request.method==="OPTIONS")return new Response("",{headers:CORS});
   const u=new URL(request.url);
   try{
-    if(u.pathname==="/api/health")return json({ok:true,service:"eprtrack",version:"v3-save-track"});
+    if(u.pathname==="/api/health")return json({ok:true,service:"eprtrack",version:"v5-auth-security"});
 
     if(u.pathname==="/api/calculator"&&request.method==="POST"){
       const b=await request.json(),role=String(b.role||"").toLowerCase(),cat=String(b.category||"").toUpperCase(),tonnes=Number(b.tonnes);
@@ -49,7 +53,7 @@ export default {async fetch(request,env){
       const id=crypto.randomUUID(),passwordHash=await hashPassword(pw);
       await env.DB.prepare("INSERT INTO users(id,email,password_hash) VALUES(?,?,?)").bind(id,email,passwordHash).run();
       const t=token();await env.DB.prepare("INSERT INTO sessions(id,user_id,expires_at) VALUES(?,?,datetime('now','+30 day'))").bind(t,id).run();
-      return json({token:t,user:{id,email}});
+      return json({ok:true,user:{id,email}},201,{"set-cookie":sessionCookie(t)});
     }
 
     if(u.pathname==="/api/auth/login"&&request.method==="POST"){
@@ -58,13 +62,14 @@ export default {async fetch(request,env){
       if(!usr)return json({error:"No account found for this email. Click Create account to sign up first."},401);
       if(!(await verifyPassword(pw,usr.password_hash)))return json({error:"Incorrect password."},401);
       const t=token();await env.DB.prepare("INSERT INTO sessions(id,user_id,expires_at) VALUES(?,?,datetime('now','+30 day'))").bind(t,usr.id).run();
-      return json({token:t,user:{id:usr.id,email:usr.email}});
+      return json({ok:true,user:{id:usr.id,email:usr.email}},200,{"set-cookie":sessionCookie(t)});
     }
 
     const user=await auth(request,env);
+    if(user && request.method!=="GET" && !sameOrigin(request))return json({error:"Cross-site request blocked"},403);
     if(u.pathname==="/api/auth/logout"&&request.method==="POST"){
-      const h=request.headers.get("authorization")||"";if(h.startsWith("Bearer "))await env.DB.prepare("DELETE FROM sessions WHERE id=?").bind(h.slice(7)).run();
-      return json({ok:true});
+      const sid=cookieValue(request,"eprtrack_session");if(sid)await env.DB.prepare("DELETE FROM sessions WHERE id=?").bind(sid).run();
+      return json({ok:true},200,{"set-cookie":clearSessionCookie()});
     }
     if(!user)return json({error:"Authentication required"},401);
 
