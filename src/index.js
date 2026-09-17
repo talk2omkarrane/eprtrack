@@ -19,7 +19,7 @@ function token(){return crypto.randomUUID()+"."+crypto.randomUUID()}
 async function auth(request,env){
   const h=request.headers.get("authorization")||"";
   if(!h.startsWith("Bearer "))return null;
-  return (await env.DB.prepare("SELECT u.id,u.email FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires_at>datetime('now')").bind(h.slice(7)).first())||null;
+  return (await env.DB.prepare("SELECT u.id,u.email FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.expires_at>datetime('now')").bind(h.slice(7)).first())||null;
 }
 async function rules(env,request){
   const r=await env.ASSETS.fetch(new URL("/rules.json",request.url));
@@ -48,21 +48,22 @@ export default {async fetch(request,env){
       if(await env.DB.prepare("SELECT id FROM users WHERE email=?").bind(email).first())return json({error:"An account with this email already exists."},409);
       const id=crypto.randomUUID(),passwordHash=await hashPassword(pw);
       await env.DB.prepare("INSERT INTO users(id,email,password_hash) VALUES(?,?,?)").bind(id,email,passwordHash).run();
-      const t=token();await env.DB.prepare("INSERT INTO sessions(token,user_id,expires_at) VALUES(?,?,datetime('now','+30 day'))").bind(t,id).run();
+      const t=token();await env.DB.prepare("INSERT INTO sessions(id,user_id,expires_at) VALUES(?,?,datetime('now','+30 day'))").bind(t,id).run();
       return json({token:t,user:{id,email}});
     }
 
     if(u.pathname==="/api/auth/login"&&request.method==="POST"){
       const b=await request.json(),email=String(b.email||"").trim().toLowerCase(),pw=String(b.password||"");
       const usr=await env.DB.prepare("SELECT id,email,password_hash FROM users WHERE email=?").bind(email).first();
-      if(!usr||!(await verifyPassword(pw,usr.password_hash)))return json({error:"Invalid email or password."},401);
-      const t=token();await env.DB.prepare("INSERT INTO sessions(token,user_id,expires_at) VALUES(?,?,datetime('now','+30 day'))").bind(t,usr.id).run();
+      if(!usr)return json({error:"No account found for this email. Click Create account to sign up first."},401);
+      if(!(await verifyPassword(pw,usr.password_hash)))return json({error:"Incorrect password."},401);
+      const t=token();await env.DB.prepare("INSERT INTO sessions(id,user_id,expires_at) VALUES(?,?,datetime('now','+30 day'))").bind(t,usr.id).run();
       return json({token:t,user:{id:usr.id,email:usr.email}});
     }
 
     const user=await auth(request,env);
     if(u.pathname==="/api/auth/logout"&&request.method==="POST"){
-      const h=request.headers.get("authorization")||"";if(h.startsWith("Bearer "))await env.DB.prepare("DELETE FROM sessions WHERE token=?").bind(h.slice(7)).run();
+      const h=request.headers.get("authorization")||"";if(h.startsWith("Bearer "))await env.DB.prepare("DELETE FROM sessions WHERE id=?").bind(h.slice(7)).run();
       return json({ok:true});
     }
     if(!user)return json({error:"Authentication required"},401);
