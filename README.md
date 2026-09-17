@@ -1,47 +1,38 @@
-# EPRTrack V8 — auth schema compatibility fix
+# EPRTrack V11 — Compliance workspace redesign
 
-## Product flow
-Calculator → Save & Track → account creation/sign in → dashboard → company → saved calculator record.
+V11 keeps the working V8 auth/D1 schema compatibility and redesigns the dashboard around the actual SaaS value proposition.
 
-## Authentication
-- Passwords are never stored in plaintext.
-- Passwords are stored as salted PBKDF2-HMAC-SHA-256 hashes.
-- V7 uses 10,000 iterations as a temporary Cloudflare Workers Free-plan testing baseline because the current Free plan has a 10 ms CPU limit per request. OWASP currently recommends 600,000 PBKDF2-HMAC-SHA-256 iterations where PBKDF2 is used; raise the work factor before production, ideally after moving the Worker to a plan with a larger CPU budget.
-- Sessions are server-side in D1 with 256-bit cryptographically random IDs.
-- Browser authentication uses a `__Host-` Secure, HttpOnly, SameSite=Strict cookie.
-- Authentication tokens are not stored in localStorage.
-- D1 queries use prepared statements with bound parameters.
+## Dashboard tracking
+- Company workspace
+- Verified EPR target input
+- Achieved/credited quantity input
+- Target vs achieved progress
+- Shortfall calculation
+- Calculator planning snapshot kept separate from legal target
+- Next-action workflow
+- Responsive layout for desktop/tablet/mobile
 
-## D1
-Expected tables/columns:
-- users(id,email,password_hash,created_at)
-- sessions(id,user_id,expires_at)
-- companies(id,user_id,legal_name,role,category,state,fy,created_at,updated_at)
-- compliance_profiles(company_id,input_tonnes,epr_target_tonnes,recycling_required_tonnes,recycled_content_rate,progress_tonnes,rule_version,source_url,verified_on)
+## Product positioning
+Free = one-time planning calculator.
+Paid = recurring compliance workspace: FY records, target/achieved tracking, deadlines, evidence/certificate records, regulatory alerts and reports.
 
-Keep the real production `wrangler.jsonc` and D1 binding. This package intentionally does not include it.
+## Payments
+Payment/checkout remains disabled. Pricing is informational only until product testing is complete.
 
-## Save & Track routing
-`/save-track/` is handled by the Worker. Signed-in users are redirected to `/dashboard/`; signed-out users are redirected to `/auth/?mode=register&next=/dashboard/`.
+## Important regulatory boundary
+EPRTrack does not invent legal EPR targets. Users enter a verified target from their official CPCB records in this phase. The public calculator remains an indicative planning aid.
 
-## Payment
-Payment/subscription checkout is intentionally disabled in V6. Pricing is informational only. Add Razorpay after the account and dashboard flow has been tested.
-
-## Testing checklist
-1. Create a new account.
-2. Confirm the account lands on dashboard.
-3. Create a company.
-4. Confirm a pending calculator result is saved.
-5. Sign out.
-6. Sign back in with the same credentials.
-7. Confirm the dashboard and saved record load.
-8. Click Save & Track while already signed in and confirm it goes directly to dashboard.
+Keep the existing real wrangler.jsonc and D1 binding. Do not replace it with a package file.
 
 
-## V8 schema compatibility
-- Detects whether `users.id` and `companies.id` are INTEGER or TEXT.
-- Uses SQLite/D1 auto-generated row IDs for INTEGER PRIMARY KEY schemas.
-- Uses UUIDs for TEXT primary-key schemas.
-- Binds `sessions.user_id` to the actual user ID type.
-- No password plaintext storage.
+V10 workspace behavior: one company workspace per account during testing; legacy multiple company records remain selectable for test-data compatibility. Pending calculator results are automatically saved to the active company after sign-in. Payment remains disabled.
+
+
+## V11 compliance checklist
+- Adds a recurring compliance checklist stored in D1 per company.
+- Seeds four starter tasks: verify target, record achieved quantity, prepare annual return, and review CPCB updates.
+- Annual-return starter date is based on the notified 30 June next-financial-year guideline for Producers, Importers and Brand Owners; CPCB extensions can change actual filing dates.
+- Users can add, complete, and reopen company-specific tasks.
+- Task sources are shown where a source URL is available.
+- A separate `workspace_tasks` table is created automatically; no wrangler configuration change is required.
 - Payment remains disabled.

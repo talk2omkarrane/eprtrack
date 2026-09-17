@@ -60,12 +60,44 @@ async function auth(request,env){
 }
 async function rules(env,request){const r=await env.ASSETS.fetch(new URL("/rules.json",request.url));if(!r.ok)throw new Error("Rules unavailable");return r.json()}
 async function ownership(env,userId,companyId){return await env.DB.prepare("SELECT * FROM companies WHERE id=? AND user_id=?").bind(companyId,userId).first()}
+async function ensureWorkspaceTasks(env){
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS workspace_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    due_date TEXT,
+    status TEXT NOT NULL DEFAULT 'open',
+    priority TEXT NOT NULL DEFAULT 'normal',
+    source_url TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TEXT
+  )`).run();
+}
+function fyEndYear(fy){const m=String(fy||'').match(/(\d{4})-(\d{2,4})/);return m?Number(m[1])+1:null}
+async function seedWorkspaceTasks(env,company){
+  await ensureWorkspaceTasks(env);
+  const row=await env.DB.prepare("SELECT COUNT(*) AS n FROM workspace_tasks WHERE company_id=?").bind(company.id).first();
+  if(Number(row?.n||0)>0)return;
+  const end=fyEndYear(company.fy);
+  const annualDue=end?`${end}-06-30`:null;
+  const source='https://eprplastic.cpcb.gov.in/plastic/downloads/4th%20Amendment%20%28EPR%20guidelines%29%20Feb%202022.pdf';
+  const tasks=[
+    ['Verify your official EPR target','Enter the applicable target shown in your official CPCB records. EPRTrack does not determine the legal target in this version.',null,'high',null],
+    ['Record achieved / credited quantity','Update the quantity you have evidence for as compliance activity progresses.',null,'normal',null],
+    ['Prepare annual return','Keep annual-return data, recycler/PWP details and supporting records ready for filing.',annualDue,'high',source],
+    ['Review CPCB updates','Check the Common EPR Portal and CPCB notices for extensions, changes or new instructions.',null,'normal','https://epr.cpcb.gov.in/']
+  ];
+  for(const [title,description,due,priority,url] of tasks){
+    await env.DB.prepare("INSERT INTO workspace_tasks(company_id,title,description,due_date,status,priority,source_url) VALUES(?,?,?,?,?,?,?)").bind(company.id,title,description,due,'open',priority,url).run();
+  }
+}
 function redirect(url){return new Response(null,{status:302,headers:{location:url}})}
 export default {async fetch(request,env){
   if(request.method==="OPTIONS")return new Response("",{headers:CORS});
   const u=new URL(request.url);
   try{
-    if(u.pathname==="/api/health")return json({ok:true,service:"eprtrack",version:"v8-auth-schema-fix"});
+    if(u.pathname==="/api/health")return json({ok:true,service:"eprtrack",version:"v11-task-workflow"});
 
     // Server-side CTA router: logged-in users go to dashboard; others go to account creation.
     if((u.pathname==="/save-track"||u.pathname==="/save-track/")&&request.method==="GET"){
@@ -131,6 +163,8 @@ export default {async fetch(request,env){
       return json(r.results||[]);
     }
     if(u.pathname==="/api/companies"&&request.method==="POST"){
+      const existingCompany=await env.DB.prepare("SELECT id,legal_name FROM companies WHERE user_id=? ORDER BY created_at ASC LIMIT 1").bind(user.id).first();
+      if(existingCompany)return json({error:"Your account already has a company workspace. One company is included in the current testing version; multiple companies will be available in a future Business plan."},409);
       const b=await request.json(),legalName=String(b.legal_name||"").trim(),role=String(b.role||"").toLowerCase(),category=String(b.category||"").toUpperCase(),state=String(b.state||"").trim(),fy=String(b.fy||"2026-27");
       if(!legalName||!roles.has(role)||!["I","II","III","IV"].includes(category))return json({error:"Company name, role and packaging category are required."},400);
       const companyIdType=await columnType(env,"companies","id");
@@ -144,6 +178,27 @@ export default {async fetch(request,env){
         await env.DB.prepare("INSERT INTO companies(id,user_id,legal_name,role,category,state,fy,created_at,updated_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").bind(id,user.id,legalName,role,category,state,fy).run();
       }
       return json({id,legal_name:legalName,role,category,state,fy});
+    }
+    if(u.pathname==="/api/tasks"&&request.method==="GET"){
+      const cid=Number(u.searchParams.get('company_id'));
+      const company=await ownership(env,user.id,cid);if(!company)return json({error:'Company not found'},404);
+      await seedWorkspaceTasks(env,company);
+      const r=await env.DB.prepare("SELECT id,title,description,due_date,status,priority,source_url,created_at,completed_at FROM workspace_tasks WHERE company_id=? ORDER BY CASE WHEN status='open' THEN 0 ELSE 1 END, CASE WHEN due_date IS NULL THEN 1 ELSE 0 END, due_date ASC, id ASC").bind(company.id).all();
+      return json(r.results||[]);
+    }
+    if(u.pathname==="/api/tasks"&&request.method==="POST"){
+      const b=await request.json();const cid=Number(b.company_id);const company=await ownership(env,user.id,cid);if(!company)return json({error:'Company not found'},404);
+      await ensureWorkspaceTasks(env);
+      const title=String(b.title||'').trim();if(!title)return json({error:'Task title is required'},400);
+      const description=String(b.description||'').trim();const due=b.due_date?String(b.due_date):null;const priority=['low','normal','high'].includes(String(b.priority))?String(b.priority):'normal';
+      await env.DB.prepare("INSERT INTO workspace_tasks(company_id,title,description,due_date,status,priority,source_url) VALUES(?,?,?,?,?,?,?)").bind(company.id,title,description,due,'open',priority,String(b.source_url||'')).run();
+      return json({ok:true});
+    }
+    if(u.pathname==="/api/tasks"&&request.method==="PATCH"){
+      const b=await request.json();const id=Number(b.id);const task=await env.DB.prepare("SELECT * FROM workspace_tasks WHERE id=?").bind(id).first();if(!task)return json({error:'Task not found'},404);
+      const company=await ownership(env,user.id,task.company_id);if(!company)return json({error:'Task not found'},404);
+      const status=b.status==='done'?'done':'open';await env.DB.prepare("UPDATE workspace_tasks SET status=?,completed_at=? WHERE id=?").bind(status,status==='done'?new Date().toISOString():null,id).run();
+      return json({ok:true});
     }
     if(u.pathname==="/api/compliance"&&request.method==="GET"){
       const cid=u.searchParams.get("company_id");const company=await ownership(env,user.id,cid);if(!company)return json({error:"Company not found"},404);
