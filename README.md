@@ -1,4 +1,4 @@
-# EPRTrack V6 — working account + dashboard flow
+# EPRTrack V8 — auth schema compatibility fix
 
 ## Product flow
 Calculator → Save & Track → account creation/sign in → dashboard → company → saved calculator record.
@@ -36,3 +36,12 @@ Payment/subscription checkout is intentionally disabled in V6. Pricing is inform
 6. Sign back in with the same credentials.
 7. Confirm the dashboard and saved record load.
 8. Click Save & Track while already signed in and confirm it goes directly to dashboard.
+
+
+## V8 schema compatibility
+- Detects whether `users.id` and `companies.id` are INTEGER or TEXT.
+- Uses SQLite/D1 auto-generated row IDs for INTEGER PRIMARY KEY schemas.
+- Uses UUIDs for TEXT primary-key schemas.
+- Binds `sessions.user_id` to the actual user ID type.
+- No password plaintext storage.
+- Payment remains disabled.

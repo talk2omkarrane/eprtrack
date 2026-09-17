@@ -28,13 +28,26 @@ async function verifyPassword(password,stored){
   const actual=await derivePassword(password,bytesFromHex(saltHex),iterations);
   return actual===digest;
 }
+async function tableInfo(env,table){
+  const allowed=new Set(["users","sessions","companies","compliance_profiles"]);
+  if(!allowed.has(table))throw new Error("Invalid table");
+  const rows=await env.DB.prepare(`PRAGMA table_info(${table})`).all();
+  return rows.results||[];
+}
+async function columnType(env,table,column){
+  const rows=await tableInfo(env,table);
+  const c=rows.find(x=>x.name===column);
+  if(!c)throw new Error(`${table}.${column} column not found`);
+  return String(c.type||"").toUpperCase();
+}
 async function getSessionColumn(env){
-  const rows=await env.DB.prepare("PRAGMA table_info(sessions)").all();
-  const names=(rows.results||[]).map(x=>x.name);
+  const rows=await tableInfo(env,"sessions");
+  const names=rows.map(x=>x.name);
   if(names.includes("token"))return "token";
   if(names.includes("id"))return "id";
   throw new Error("Sessions table must contain id or token");
 }
+function isIntegerType(type){return /INT/i.test(type)}
 function token(){const bytes=new Uint8Array(32);crypto.getRandomValues(bytes);return hex(bytes)}
 function sessionCookie(value,maxAge=2592000){return `__Host-eprtrack_session=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Strict`}
 function clearSessionCookie(){return "__Host-eprtrack_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict"}
@@ -52,7 +65,7 @@ export default {async fetch(request,env){
   if(request.method==="OPTIONS")return new Response("",{headers:CORS});
   const u=new URL(request.url);
   try{
-    if(u.pathname==="/api/health")return json({ok:true,service:"eprtrack",version:"v6-auth-ui-flow"});
+    if(u.pathname==="/api/health")return json({ok:true,service:"eprtrack",version:"v8-auth-schema-fix"});
 
     // Server-side CTA router: logged-in users go to dashboard; others go to account creation.
     if((u.pathname==="/save-track"||u.pathname==="/save-track/")&&request.method==="GET"){
@@ -72,15 +85,27 @@ export default {async fetch(request,env){
       if(!/^\S+@\S+\.\S+$/.test(email)||pw.length<8)return json({error:"Enter a valid email and a password of at least 8 characters."},400);
       const existing=await env.DB.prepare("SELECT id FROM users WHERE email=? LIMIT 1").bind(email).first();
       if(existing)return json({error:"An account with this email already exists. Sign in instead."},409);
-      const id=crypto.randomUUID();
       const passwordHash=await hashPassword(pw);
-      const t=token();
-      const sessionCol=await getSessionColumn(env);
-      await env.DB.batch([
-        env.DB.prepare("INSERT INTO users(id,email,password_hash) VALUES(?,?,?)").bind(id,email,passwordHash),
-        env.DB.prepare(`INSERT INTO sessions(${sessionCol},user_id,expires_at) VALUES(?,?,datetime('now','+30 day'))`).bind(t,id)
-      ]);
-      return json({ok:true,user:{id,email}},201,{"set-cookie":sessionCookie(t)});
+      const userIdType=await columnType(env,"users","id");
+      let userId;
+      if(isIntegerType(userIdType)){
+        const inserted=await env.DB.prepare("INSERT INTO users(email,password_hash) VALUES(?,?)").bind(email,passwordHash).run();
+        userId=inserted.meta?.last_row_id;
+        if(userId==null)throw new Error("User insert did not return an integer row id");
+      }else{
+        userId=crypto.randomUUID();
+        await env.DB.prepare("INSERT INTO users(id,email,password_hash) VALUES(?,?,?)").bind(userId,email,passwordHash).run();
+      }
+      let t;
+      try{
+        t=token();
+        const sessionCol=await getSessionColumn(env);
+        await env.DB.prepare(`INSERT INTO sessions(${sessionCol},user_id,expires_at) VALUES(?,?,datetime('now','+30 day'))`).bind(t,userId).run();
+      }catch(e){
+        try{await env.DB.prepare("DELETE FROM users WHERE id=?").bind(userId).run()}catch(_){}
+        throw e;
+      }
+      return json({ok:true,user:{id:userId,email}},201,{"set-cookie":sessionCookie(t)});
     }
 
     if(u.pathname==="/api/auth/login"&&request.method==="POST"){
@@ -108,8 +133,16 @@ export default {async fetch(request,env){
     if(u.pathname==="/api/companies"&&request.method==="POST"){
       const b=await request.json(),legalName=String(b.legal_name||"").trim(),role=String(b.role||"").toLowerCase(),category=String(b.category||"").toUpperCase(),state=String(b.state||"").trim(),fy=String(b.fy||"2026-27");
       if(!legalName||!roles.has(role)||!["I","II","III","IV"].includes(category))return json({error:"Company name, role and packaging category are required."},400);
-      const id=crypto.randomUUID();
-      await env.DB.prepare("INSERT INTO companies(id,user_id,legal_name,role,category,state,fy,created_at,updated_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").bind(id,user.id,legalName,role,category,state,fy).run();
+      const companyIdType=await columnType(env,"companies","id");
+      let id;
+      if(isIntegerType(companyIdType)){
+        const inserted=await env.DB.prepare("INSERT INTO companies(user_id,legal_name,role,category,state,fy,created_at,updated_at) VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").bind(user.id,legalName,role,category,state,fy).run();
+        id=inserted.meta?.last_row_id;
+        if(id==null)throw new Error("Company insert did not return an integer row id");
+      }else{
+        id=crypto.randomUUID();
+        await env.DB.prepare("INSERT INTO companies(id,user_id,legal_name,role,category,state,fy,created_at,updated_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").bind(id,user.id,legalName,role,category,state,fy).run();
+      }
       return json({id,legal_name:legalName,role,category,state,fy});
     }
     if(u.pathname==="/api/compliance"&&request.method==="GET"){
