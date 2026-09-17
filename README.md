@@ -6,7 +6,7 @@ Calculator → Save & Track → account creation/sign in → dashboard → compa
 ## Authentication
 - Passwords are never stored in plaintext.
 - Passwords are stored as salted PBKDF2-HMAC-SHA-256 hashes.
-- V6 uses 100,000 iterations as a Cloudflare Workers Free-plan-friendly baseline. OWASP currently recommends 600,000 PBKDF2-HMAC-SHA-256 iterations where PBKDF2 is used; upgrade the work factor when the Worker has sufficient CPU budget.
+- V7 uses 10,000 iterations as a temporary Cloudflare Workers Free-plan testing baseline because the current Free plan has a 10 ms CPU limit per request. OWASP currently recommends 600,000 PBKDF2-HMAC-SHA-256 iterations where PBKDF2 is used; raise the work factor before production, ideally after moving the Worker to a plan with a larger CPU budget.
 - Sessions are server-side in D1 with 256-bit cryptographically random IDs.
 - Browser authentication uses a `__Host-` Secure, HttpOnly, SameSite=Strict cookie.
 - Authentication tokens are not stored in localStorage.

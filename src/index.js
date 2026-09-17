@@ -3,7 +3,7 @@ const json=(data,status=200,extra={})=>new Response(JSON.stringify(data),{status
 const enc=new TextEncoder();
 const roles=new Set(["producer","importer","brand-owner"]);
 const labels={producer:"Producer",importer:"Importer", "brand-owner":"Brand Owner"};
-const PBKDF2_ITERATIONS=100000; // Free-plan-friendly baseline. Raise to 600000+ when CPU budget allows.
+const PBKDF2_ITERATIONS=10000; // Temporary Workers Free testing baseline; raise on a paid CPU budget before production.
 const LEGACY_PBKDF2_ITERATIONS=600000;
 function hex(bytes){return [...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,"0")).join("")}
 function bytesFromHex(h){return Uint8Array.from(h.match(/../g).map(x=>parseInt(x,16)))}
@@ -31,8 +31,8 @@ async function verifyPassword(password,stored){
 async function getSessionColumn(env){
   const rows=await env.DB.prepare("PRAGMA table_info(sessions)").all();
   const names=(rows.results||[]).map(x=>x.name);
-  if(names.includes("id"))return "id";
   if(names.includes("token"))return "token";
+  if(names.includes("id"))return "id";
   throw new Error("Sessions table must contain id or token");
 }
 function token(){const bytes=new Uint8Array(32);crypto.getRandomValues(bytes);return hex(bytes)}
@@ -74,9 +74,12 @@ export default {async fetch(request,env){
       if(existing)return json({error:"An account with this email already exists. Sign in instead."},409);
       const id=crypto.randomUUID();
       const passwordHash=await hashPassword(pw);
-      await env.DB.prepare("INSERT INTO users(id,email,password_hash) VALUES(?,?,?)").bind(id,email,passwordHash).run();
       const t=token();
-      const sessionCol=await getSessionColumn(env);await env.DB.prepare(`INSERT INTO sessions(${sessionCol},user_id,expires_at) VALUES(?,?,datetime('now','+30 day'))`).bind(t,id).run();
+      const sessionCol=await getSessionColumn(env);
+      await env.DB.batch([
+        env.DB.prepare("INSERT INTO users(id,email,password_hash) VALUES(?,?,?)").bind(id,email,passwordHash),
+        env.DB.prepare(`INSERT INTO sessions(${sessionCol},user_id,expires_at) VALUES(?,?,datetime('now','+30 day'))`).bind(t,id)
+      ]);
       return json({ok:true,user:{id,email}},201,{"set-cookie":sessionCookie(t)});
     }
 
@@ -123,7 +126,7 @@ export default {async fetch(request,env){
     }
     return json({error:"Not found"},404);
   }catch(e){
-    console.error("EPRTrack worker error",{path:u.pathname,method:request.method,message:e?.message||String(e)});
-    return json({error:"Server error. Please try again. If the problem continues, check the Worker logs."},500);
+    console.error("EPRTrack worker error",{path:u.pathname,method:request.method,name:e?.name||"Error",message:e?.message||String(e),stack:e?.stack||""});
+    return json({error:"Account service is temporarily unavailable. Please try again in a moment."},500);
   }
 }}
