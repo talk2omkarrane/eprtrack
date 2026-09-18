@@ -97,7 +97,7 @@ export default {async fetch(request,env){
   if(request.method==="OPTIONS")return new Response("",{headers:CORS});
   const u=new URL(request.url);
   try{
-    if(u.pathname==="/api/health")return json({ok:true,service:"eprtrack",version:"v11-task-workflow"});
+    if(u.pathname==="/api/health")return json({ok:true,service:"eprtrack",version:"v12-data-analyzer"});
 
     // Server-side CTA router: logged-in users go to dashboard; others go to account creation.
     if((u.pathname==="/save-track"||u.pathname==="/save-track/")&&request.method==="GET"){

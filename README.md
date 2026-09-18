@@ -1,38 +1,49 @@
-# EPRTrack V11 — Compliance workspace redesign
+# EPRTrack V12 — EPR Data Analyzer
 
-V11 keeps the working V8 auth/D1 schema compatibility and redesigns the dashboard around the actual SaaS value proposition.
+V12 changes the product direction from a manual tracking dashboard to a data-first EPR workflow. The new public analyzer lets a user upload an Excel/CSV file, review automatic column mapping, detect data-quality problems and download a reviewed spreadsheet with excluded rows highlighted and an `Error / Reason` column.
 
-## Dashboard tracking
-- Company workspace
-- Verified EPR target input
-- Achieved/credited quantity input
-- Target vs achieved progress
-- Shortfall calculation
-- Calculator planning snapshot kept separate from legal target
-- Next-action workflow
-- Responsive layout for desktop/tablet/mobile
+## V12 workflow
+1. Download the EPRTrack Excel template or sample file.
+2. Upload Excel or CSV.
+3. Automatically map common column names.
+4. Review/edit mappings.
+5. Analyse rows for duplicates, missing packaging data, invalid quantities, invalid dates, unsupported units, category mapping problems and suspicious packaging weights.
+6. Show an EPR Health Check.
+7. Download a reviewed Excel with problematic rows highlighted in red and a reason column.
+8. Download a CSV issue list or sample report.
 
-## Product positioning
-Free = one-time planning calculator.
-Paid = recurring compliance workspace: FY records, target/achieved tracking, deadlines, evidence/certificate records, regulatory alerts and reports.
+## Recommended upload columns
+- Invoice No
+- Product
+- Quantity
+- Quantity Unit
+- Invoice Date
+- Packaging Type
+- Packaging Weight (kg)
+- EPR Category
 
-## Payments
-Payment/checkout remains disabled. Pricing is informational only until product testing is complete.
+The analyzer accepts common alternatives and lets the user correct mappings. V12 supports kg and tonnes as transaction quantity units.
 
-## Important regulatory boundary
-EPRTrack does not invent legal EPR targets. Users enter a verified target from their official CPCB records in this phase. The public calculator remains an indicative planning aid.
+## Privacy model
+V12 file analysis is browser-side. Uploaded files are not sent to the EPRTrack Worker in this version. The last health-check summary is stored only in browser localStorage so the dashboard can show the latest local result. V13 should move saved analysis results into D1 after the core workflow is validated.
 
-Keep the existing real wrangler.jsonc and D1 binding. Do not replace it with a package file.
+## Planning/regulatory boundary
+The analyzer is a data-quality and planning workflow. Its packaging-quantity view is **not** a legal EPR target determination and does not certify fulfilment. It must not be presented as replacing CPCB/Common EPR Portal records or current regulatory requirements. The official plastic EPR portal states that its operations were discontinued from 28 June 2026 and that users should use the Common EPR Portal for current updates.
 
+Official source: https://www.eprplastic.cpcb.gov.in/
 
-V10 workspace behavior: one company workspace per account during testing; legacy multiple company records remain selectable for test-data compatibility. Pending calculator results are automatically saved to the active company after sign-in. Payment remains disabled.
+## V11/V10 compatibility
+- Existing auth/D1/company/compliance/task workflows are retained.
+- Existing manual tracking remains available as a supporting workflow.
+- New dashboard messaging points users to the data analyzer as the primary workflow.
+- Payments remain disabled.
+- Do not replace the real `wrangler.jsonc` or D1 binding.
 
+## Included downloadable examples
+- `public/eprtrack_epr_upload_template.xlsx` — recommended Excel format with a clean sample sheet.
+- `public/eprtrack_epr_sample_data.csv` — deliberately mixed sample containing valid and invalid rows.
+- `public/eprtrack_sample_reviewed_output.xlsx` — example of the reviewed output with red-highlighted excluded rows and an Error / Reason column.
+- `public/eprtrack_sample_epr_health_report.pdf` — human-readable sample health report.
 
-## V11 compliance checklist
-- Adds a recurring compliance checklist stored in D1 per company.
-- Seeds four starter tasks: verify target, record achieved quantity, prepare annual return, and review CPCB updates.
-- Annual-return starter date is based on the notified 30 June next-financial-year guideline for Producers, Importers and Brand Owners; CPCB extensions can change actual filing dates.
-- Users can add, complete, and reopen company-specific tasks.
-- Task sources are shown where a source URL is available.
-- A separate `workspace_tasks` table is created automatically; no wrangler configuration change is required.
-- Payment remains disabled.
+## Next product stage
+V13 should connect the validated business data to the EPR reconciliation engine: company role/category + historical business data + evidence/certificates + versioned rules → an automatic, traceable compliance position.

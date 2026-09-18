@@ -1,0 +1,11 @@
+Invoice No,Product,Quantity,Quantity Unit,Invoice Date,Packaging Type,Packaging Weight (kg),EPR Category,Notes
+INV-1001,Shampoo Bottle 500ml,1200,kg,2026-04-05,Rigid bottle,240,I,Valid example
+INV-1002,Refill Pouch,850,kg,2026-04-08,,0,II,Missing packaging type/weight
+INV-1003,Food Container,500,kg,2026-04-12,Rigid container,95,I,Valid example
+INV-1003,Food Container,500,kg,2026-04-12,Rigid container,95,I,Duplicate invoice number
+INV-1004,Carry Bag,-20,kg,2026-04-15,Carry bag,4,II,Invalid negative quantity
+INV-1005,Wrapper,300,kg,not-a-date,Flexible film,32,II,Invalid date
+INV-1006,Cap,100,boxes,2026-04-18,Rigid cap,8,I,Unsupported quantity unit
+INV-1007,Large Drum,50,kg,2026-04-20,Rigid drum,5000,I,Suspicious packaging weight
+INV-1008,Tray,700,kg,2026-04-21,Rigid tray,70,V,Category mapping issue
+INV-1009,Bottle,900,kg,2026-04-22,Rigid bottle,180,I,Valid example
