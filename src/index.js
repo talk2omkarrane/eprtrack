@@ -108,7 +108,7 @@ export default {async fetch(request,env){
 
     if(u.pathname==="/api/calculator"&&request.method==="POST"){
       const b=await request.json(),role=String(b.role||"").toLowerCase(),cat=String(b.category||"").toUpperCase(),tonnes=Number(b.tonnes);
-      if(!roles.has(role)||!["I","II","III","IV"].includes(cat)||!Number.isFinite(tonnes)||tonnes<0)return json({error:"Enter a valid role, category and quantity."},400);
+      if(b.tonnes==null||typeof b.tonnes==="boolean"||String(b.tonnes).trim()===""||!roles.has(role)||!["I","II","III","IV"].includes(cat)||!Number.isFinite(tonnes)||tonnes<0)return json({error:"Enter a valid role, category and quantity."},400);
       const r=await rules(env,request),rate=r.recycled_content_rate[cat];
       return json({fy:"2026-27",role,role_label:labels[role],category:cat,input_tonnes:tonnes,recycled_content_rate:rate,indicative_recycled_content_tonnes:rate==null?null:tonnes*rate,minimum_recycling_rate_of_applicable_target:r.minimum_recycling_of_applicable_target[cat],rule_version:r.version,source:r.source,verified_on:r.verified_on});
     }
@@ -242,9 +242,12 @@ export default {async fetch(request,env){
     if(u.pathname==="/api/compliance"&&request.method==="PUT"){
       const b=await request.json(),company=await ownership(env,user.id,b.company_id);if(!company)return json({error:"Company not found"},404);
       for(const k of ["epr_target_tonnes","recycling_required_tonnes","recycled_content_rate"]){if(b[k]!=null&&(typeof b[k]!=="number"||!Number.isFinite(b[k])||b[k]<0))return json({error:"Invalid compliance value"},400);}
-      const input=Number(b.input_tonnes);if(!Number.isFinite(input)||input<0)return json({error:"Enter a valid planning quantity."},400);
+      const input=Number(b.input_tonnes);if(b.input_tonnes==null||typeof b.input_tonnes==='boolean'||String(b.input_tonnes).trim()===''||!Number.isFinite(input)||input<0)return json({error:"Enter a valid planning quantity."},400);
       if(b.planning_only===true){
-        await env.DB.prepare("INSERT INTO compliance_profiles(company_id,input_tonnes,rule_version) VALUES(?,?,?) ON CONFLICT(company_id) DO UPDATE SET input_tonnes=excluded.input_tonnes").bind(company.id,input,"planning-only").run();return json({ok:true});
+        if(b.role!==company.role||b.category!==company.category||b.fy!==company.fy||company.fy!=="2026-27")return json({error:"Calculator result must match the selected company role, category and FY."},400);
+        const r=await rules(env,request),rate=r.recycled_content_rate[company.category];
+        await env.DB.prepare("INSERT INTO compliance_profiles(company_id,input_tonnes,recycled_content_rate,rule_version,source_url,verified_on) VALUES(?,?,?,?,?,?) ON CONFLICT(company_id) DO UPDATE SET input_tonnes=excluded.input_tonnes,recycled_content_rate=excluded.recycled_content_rate,rule_version=excluded.rule_version,source_url=excluded.source_url,verified_on=excluded.verified_on").bind(company.id,input,rate,r.version,r.source,r.verified_on).run();
+        return json({ok:true});
       }
       const rate=b.recycled_content_rate==null?null:Number(b.recycled_content_rate),progress=Number(b.progress_tonnes||0);if(!Number.isFinite(progress)||progress<0)return json({error:"Enter a valid progress value."},400);
       await env.DB.prepare(`INSERT INTO compliance_profiles(company_id,input_tonnes,epr_target_tonnes,recycling_required_tonnes,recycled_content_rate,progress_tonnes,rule_version,source_url,verified_on) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(company_id) DO UPDATE SET input_tonnes=excluded.input_tonnes,epr_target_tonnes=excluded.epr_target_tonnes,recycling_required_tonnes=excluded.recycling_required_tonnes,recycled_content_rate=excluded.recycled_content_rate,progress_tonnes=excluded.progress_tonnes,rule_version=excluded.rule_version,source_url=excluded.source_url,verified_on=excluded.verified_on`).bind(company.id,input,b.epr_target_tonnes??null,b.recycling_required_tonnes??null,rate,progress,String(b.rule_version||""),String(b.source_url||""),String(b.verified_on||"")).run();
