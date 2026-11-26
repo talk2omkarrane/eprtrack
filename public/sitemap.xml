@@ -1,9 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-<url><loc>https://eprtrack.in/</loc></url>
-<url><loc>https://eprtrack.in/calculator/</loc></url>
-<url><loc>https://eprtrack.in/analyzer/</loc></url>
-<url><loc>https://eprtrack.in/guides/epr-compliance/</loc></url>
-<url><loc>https://eprtrack.in/faq/</loc></url>
-<url><loc>https://eprtrack.in/pricing/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/about/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/analyzer/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/blog/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/blog/epr-compliance-guide/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/blog/how-is-epr-calculated/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/blog/plastic-epr-calculator/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/blog/plastic-epr-target/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/calculator/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/calculator/brand-owner/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/calculator/d2c/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/calculator/importer/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/calculator/producer/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/faq/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/guides/epr-compliance/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/guides/epr-target/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/guides/plastic-epr/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/pricing/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/privacy/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/reconciliation/</loc></url>
+  <url><loc>https://eprtrack.talk2omkar-rane.workers.dev/terms/</loc></url>
 </urlset>
