@@ -24,9 +24,9 @@ async function verifyPassword(password,stored){
   if(parts.length===4 && parts[0]==="v2"){iterations=Number(parts[1]);saltHex=parts[2];digest=parts[3];}
   else if(stored.includes(":")){[saltHex,digest]=stored.split(":");iterations=LEGACY_PBKDF2_ITERATIONS;}
   else return false;
-  if(!Number.isInteger(iterations)||iterations<1000||!saltHex||!digest)return false;
+  if(!Number.isInteger(iterations)||iterations<1000||iterations>600000||!saltHex||!digest)return false;
   const actual=await derivePassword(password,bytesFromHex(saltHex),iterations);
-  return actual===digest;
+  if(actual.length!==digest.length)return false;let diff=0;for(let i=0;i<actual.length;i++)diff|=actual.charCodeAt(i)^digest.charCodeAt(i);return diff===0;
 }
 async function tableInfo(env,table){
   const allowed=new Set(["users","sessions","companies","compliance_profiles"]);
@@ -96,8 +96,9 @@ function redirect(url){return new Response(null,{status:302,headers:{location:ur
 export default {async fetch(request,env){
   if(request.method==="OPTIONS")return new Response("",{headers:CORS});
   const u=new URL(request.url);
+  if (!sameOrigin(request) && request.method!=="GET") return json({error:"Cross-site request blocked"},403);
   try{
-    if(u.pathname==="/api/health")return json({ok:true,service:"eprtrack",version:"v12-data-analyzer"});
+    if(u.pathname==="/api/health"){await env.DB.prepare("SELECT 1 FROM launch_health LIMIT 1").all();return json({ok:true,service:"eprtrack",version:"launch-candidate"},200,{"cache-control":"no-store"});}
 
     // Server-side CTA router: logged-in users go to dashboard; others go to account creation.
     if((u.pathname==="/save-track"||u.pathname==="/save-track/")&&request.method==="GET"){
@@ -156,6 +157,40 @@ export default {async fetch(request,env){
       return json({ok:true},200,{"set-cookie":clearSessionCookie()});
     }
     if(!user)return json({error:"Authentication required"},401);
+    if(u.pathname==="/api/launch-records"){
+      const body=request.method==="GET"?null:await request.json();
+      const cid=request.method==="GET"?u.searchParams.get("company_id"):body.company_id;
+      const company=await ownership(env,user.id,cid);
+      if(!company)return json({error:"Company not found"},404);
+      const key=String(company.id), fy=String(company.fy);
+      if(request.method==="GET"){
+        const h=await env.DB.prepare("SELECT summary FROM launch_health WHERE company_id=? AND fy=?").bind(key,fy).first();
+        const e=await env.DB.prepare("SELECT id,ref,qty,party,status,note FROM launch_evidence WHERE company_id=? AND fy=? ORDER BY id DESC").bind(key,fy).all();
+        return json({health:h?JSON.parse(h.summary):null,evidence:e.results||[]},200,{"cache-control":"no-store"});
+      }
+      if(request.method==="PUT"){
+        const h=body.health||{}, out={file:String(h.file||"").slice(0,250),checkedAt:new Date().toISOString()};
+        for(const k of ["records","valid","review","duplicates","missingPackaging","categoryIssues","packagingTonnes"]){const n=h[k];if(typeof n!=="number"||!Number.isFinite(n)||n<0||n>1e12||(k!=="packagingTonnes"&&!Number.isInteger(n)))return json({error:"Invalid summary"},400);out[k]=n;}
+        if(out.valid+out.review!==out.records)return json({error:"Invalid record totals"},400);
+        await env.DB.prepare("INSERT INTO launch_health(company_id,fy,summary) VALUES(?,?,?) ON CONFLICT(company_id,fy) DO UPDATE SET summary=excluded.summary").bind(key,fy,JSON.stringify(out)).run();return json({ok:true});
+      }
+      if(request.method==="POST"){
+        const ref=String(body.ref||"").trim(),qty=body.qty,party=String(body.party||"").trim(),note=String(body.note||"").trim();
+        if(!ref||ref.length>200||typeof qty!=="number"||!Number.isFinite(qty)||qty<=0||qty>1e9||party.length>200||note.length>1000)return json({error:"Invalid evidence"},400);
+        const status=body.status==="reviewed"?"reviewed":"pending";
+        if(status==="reviewed"&&(!party||!note))return json({error:"Enter issuer and review notes"},400);
+        const result=await env.DB.prepare("INSERT OR IGNORE INTO launch_evidence(company_id,fy,ref,qty,party,status,note) VALUES(?,?,?,?,?,?,?)").bind(key,fy,ref,qty,party,status,note).run();
+        if(!result.meta.changes)return json({error:"Reference already exists for this financial year"},409);
+        return json({ok:true},201);
+      }
+      if(request.method==="PATCH"){
+        const id=Number(body.id),note=String(body.note||"").trim();
+        if(!Number.isSafeInteger(id)||id<=0||note.length>1000||!note)return json({error:"Review note required"},400);
+        const r=await env.DB.prepare("UPDATE launch_evidence SET status=?,note=? WHERE id=? AND company_id=? AND fy=? AND party<>''").bind(body.status==="reviewed"?"reviewed":"pending",note,id,key,fy).run();
+        return r.meta.changes?json({ok:true}):json({error:"Evidence not found or issuer missing"},404);
+      }
+      return json({error:"Method not allowed"},405);
+    }
 
     if(u.pathname==="/api/me")return json({user});
     if(u.pathname==="/api/companies"&&request.method==="GET"){
@@ -207,7 +242,11 @@ export default {async fetch(request,env){
     }
     if(u.pathname==="/api/compliance"&&request.method==="PUT"){
       const b=await request.json(),company=await ownership(env,user.id,b.company_id);if(!company)return json({error:"Company not found"},404);
+      for(const k of ["epr_target_tonnes","recycling_required_tonnes","recycled_content_rate"]){if(b[k]!=null&&(typeof b[k]!=="number"||!Number.isFinite(b[k])||b[k]<0))return json({error:"Invalid compliance value"},400);}
       const input=Number(b.input_tonnes);if(!Number.isFinite(input)||input<0)return json({error:"Enter a valid planning quantity."},400);
+      if(b.planning_only===true){
+        await env.DB.prepare("INSERT INTO compliance_profiles(company_id,input_tonnes,rule_version) VALUES(?,?,?) ON CONFLICT(company_id) DO UPDATE SET input_tonnes=excluded.input_tonnes").bind(company.id,input,"planning-only").run();return json({ok:true});
+      }
       const rate=b.recycled_content_rate==null?null:Number(b.recycled_content_rate),progress=Number(b.progress_tonnes||0);if(!Number.isFinite(progress)||progress<0)return json({error:"Enter a valid progress value."},400);
       await env.DB.prepare(`INSERT INTO compliance_profiles(company_id,input_tonnes,epr_target_tonnes,recycling_required_tonnes,recycled_content_rate,progress_tonnes,rule_version,source_url,verified_on) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(company_id) DO UPDATE SET input_tonnes=excluded.input_tonnes,epr_target_tonnes=excluded.epr_target_tonnes,recycling_required_tonnes=excluded.recycling_required_tonnes,recycled_content_rate=excluded.recycled_content_rate,progress_tonnes=excluded.progress_tonnes,rule_version=excluded.rule_version,source_url=excluded.source_url,verified_on=excluded.verified_on`).bind(company.id,input,b.epr_target_tonnes??null,b.recycling_required_tonnes??null,rate,progress,String(b.rule_version||""),String(b.source_url||""),String(b.verified_on||"")).run();
       return json({ok:true});

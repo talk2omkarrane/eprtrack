@@ -1,0 +1,2 @@
+CREATE TABLE IF NOT EXISTS launch_health (company_id TEXT NOT NULL,fy TEXT NOT NULL,summary TEXT NOT NULL,PRIMARY KEY(company_id,fy));
+CREATE TABLE IF NOT EXISTS launch_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT,company_id TEXT NOT NULL,fy TEXT NOT NULL,ref TEXT NOT NULL COLLATE NOCASE,qty REAL NOT NULL CHECK(qty>0),party TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('pending','reviewed')),note TEXT NOT NULL,UNIQUE(company_id,fy,ref));
