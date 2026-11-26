@@ -198,10 +198,9 @@ export default {async fetch(request,env){
       return json(r.results||[]);
     }
     if(u.pathname==="/api/companies"&&request.method==="POST"){
-      const existingCompany=await env.DB.prepare("SELECT id,legal_name FROM companies WHERE user_id=? ORDER BY created_at ASC LIMIT 1").bind(user.id).first();
-      if(existingCompany)return json({error:"Your account already has a company workspace. One company is included in the current testing version; multiple companies will be available in a future Business plan."},409);
+      // Multiple company workspaces are available during the free pilot.
       const b=await request.json(),legalName=String(b.legal_name||"").trim(),role=String(b.role||"").toLowerCase(),category=String(b.category||"").toUpperCase(),state=String(b.state||"").trim(),fy=String(b.fy||"2026-27");
-      if(!legalName||!roles.has(role)||!["I","II","III","IV"].includes(category))return json({error:"Company name, role and packaging category are required."},400);
+      if(!legalName||legalName.length>200||state.length>100||!/^20\d{2}-\d{2}$/.test(fy)||Number(fy.slice(5))!==(Number(fy.slice(0,4))+1)%100||!roles.has(role)||!["I","II","III","IV"].includes(category))return json({error:"Company name, role and packaging category are required."},400);
       const companyIdType=await columnType(env,"companies","id");
       let id;
       if(isIntegerType(companyIdType)){
@@ -215,14 +214,14 @@ export default {async fetch(request,env){
       return json({id,legal_name:legalName,role,category,state,fy});
     }
     if(u.pathname==="/api/tasks"&&request.method==="GET"){
-      const cid=Number(u.searchParams.get('company_id'));
+      const cid=u.searchParams.get('company_id');
       const company=await ownership(env,user.id,cid);if(!company)return json({error:'Company not found'},404);
       await seedWorkspaceTasks(env,company);
       const r=await env.DB.prepare("SELECT id,title,description,due_date,status,priority,source_url,created_at,completed_at FROM workspace_tasks WHERE company_id=? ORDER BY CASE WHEN status='open' THEN 0 ELSE 1 END, CASE WHEN due_date IS NULL THEN 1 ELSE 0 END, due_date ASC, id ASC").bind(company.id).all();
       return json(r.results||[]);
     }
     if(u.pathname==="/api/tasks"&&request.method==="POST"){
-      const b=await request.json();const cid=Number(b.company_id);const company=await ownership(env,user.id,cid);if(!company)return json({error:'Company not found'},404);
+      const b=await request.json();const cid=b.company_id;const company=await ownership(env,user.id,cid);if(!company)return json({error:'Company not found'},404);
       await ensureWorkspaceTasks(env);
       const title=String(b.title||'').trim();if(!title)return json({error:'Task title is required'},400);
       const description=String(b.description||'').trim();const due=b.due_date?String(b.due_date):null;const priority=['low','normal','high'].includes(String(b.priority))?String(b.priority):'normal';
