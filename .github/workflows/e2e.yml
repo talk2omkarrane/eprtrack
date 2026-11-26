@@ -1,0 +1,61 @@
+name: EPRTrack end-to-end QA
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      live:
+        description: "Run live tests (creates two clearly labeled synthetic QA accounts and companies)"
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  local:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm install --no-save --package-lock=false @playwright/test@1.56.1
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npx wrangler d1 migrations apply eprtrack-db --local
+      - run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: local-playwright-report
+          path: playwright-report/
+          retention-days: 7
+  live:
+    if: (github.event_name == 'workflow_dispatch' && inputs.live) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[live-qa-once]'))
+    needs: local
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm install --no-save --package-lock=false @playwright/test@1.56.1
+      - run: npx playwright install --with-deps chromium
+      - name: Wait for current Worker release
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 10 https://eprtrack.talk2omkar-rane.workers.dev/api/health | grep -q 'qa-2026-11-26'; then exit 0; fi
+            sleep 10
+          done
+          echo "Expected deployed Worker not confirmed"; exit 1
+      - run: npx playwright test
+        env:
+          EPR_QA_LIVE: '1'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-playwright-report
+          path: playwright-report/
+          retention-days: 7
