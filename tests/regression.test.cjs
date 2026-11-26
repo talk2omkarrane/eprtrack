@@ -1,0 +1,13 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const vm=require('node:vm');
+const recon=fs.readFileSync('public/reconciliation/reconcile.js','utf8').split('const $=')[0];
+const ctx=vm.createContext({});vm.runInContext(recon,ctx);
+const {parseCSV,reconcile}=ctx;
+const h='reference,category,fy,quantity_tonnes\n';
+test('reconciliation classifies all result types',()=>{const a=parseCSV(h+'A,I,2026-27,1\nB,II,2026-27,2\nC,III,2026-27,3\nC,III,2026-27,3\nD,I,2026-27,4'),b=parseCSV(h+'a,I,2026-27,1\nB,II,2026-27,2.5\nE,IV,2026-27,5');assert.equal(Array.from(reconcile(a,b),x=>x[7]).join('|'),'Matched data|Quantity mismatch|Duplicate key — review|Only in primary|Only in comparison')});
+test('CSV supports quoted fields and rejects malformed FY and quantities',()=>{assert.equal(parseCSV(h+'"A, B",I,2026-27,1')[0].ref,'A, B');for(const row of ['A,I,2026-28,1','A,I,2026-27,0','A,I,2026-27,1e3','"A,I,2026-27,1'])assert.throws(()=>parseCSV(h+row))});
+test('large quantities retain exact six decimal comparison',()=>{assert.equal(reconcile(parseCSV(h+'A,I,2026-27,999999999.000001'),parseCSV(h+'A,I,2026-27,999999999.000002'))[0][7],'Quantity mismatch')});
+test('analyzer accepts Indian dates and rejects impossible calendar dates',()=>{const s=fs.readFileSync('public/analyzer/index.html','utf8');const start=s.indexOf('function parseDate(v)');const end=s.indexOf('function ',start+10);const c=vm.createContext({});vm.runInContext(s.slice(start,end),c);assert.equal(c.parseDate('05/06/2026').toISOString(),'2026-06-05T00:00:00.000Z');assert.equal(c.parseDate('31/02/2026'),null);assert.equal(c.parseDate('2024-02-29').toISOString(),'2024-02-29T00:00:00.000Z');assert.equal(c.parseDate('2025-02-29'),null)});
+test('all inline scripts compile',()=>{function walk(p){for(const e of fs.readdirSync(p,{withFileTypes:true})){const f=p+'/'+e.name;if(e.isDirectory())walk(f);else if(f.endsWith('.html'))for(const m of fs.readFileSync(f,'utf8').matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi))if(m[1].trim())new vm.Script(m[1],{filename:f})}}walk('public')});

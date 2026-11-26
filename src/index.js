@@ -1,5 +1,5 @@
 const CORS={"access-control-allow-origin":"*","access-control-allow-headers":"content-type,authorization","access-control-allow-methods":"GET,POST,PUT,DELETE,OPTIONS"};
-const json=(data,status=200,extra={})=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json",...CORS,...extra}});
+const json=(data,status=200,extra={})=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json","cache-control":"no-store",...CORS,...extra}});
 const enc=new TextEncoder();
 const roles=new Set(["producer","importer","brand-owner"]);
 const labels={producer:"Producer",importer:"Importer", "brand-owner":"Brand Owner"};
@@ -80,12 +80,12 @@ async function seedWorkspaceTasks(env,company){
   const row=await env.DB.prepare("SELECT COUNT(*) AS n FROM workspace_tasks WHERE company_id=?").bind(company.id).first();
   if(Number(row?.n||0)>0)return;
   const end=fyEndYear(company.fy);
-  const annualDue=end?`${end}-06-30`:null;
+  const annualDue=null; // Verify the applicable official deadline before entering it.
   const source='https://eprplastic.cpcb.gov.in/plastic/downloads/4th%20Amendment%20%28EPR%20guidelines%29%20Feb%202022.pdf';
   const tasks=[
     ['Verify your official EPR target','Enter the applicable target shown in your official CPCB records. EPRTrack does not determine the legal target in this version.',null,'high',null],
     ['Record achieved / credited quantity','Update the quantity you have evidence for as compliance activity progresses.',null,'normal',null],
-    ['Prepare annual return','Keep annual-return data, recycler/PWP details and supporting records ready for filing.',annualDue,'high',source],
+    ['Prepare annual return','Keep supporting records ready and verify your applicable filing deadline on the official portal.',annualDue,'high',source],
     ['Review CPCB updates','Check the Common EPR Portal and CPCB notices for extensions, changes or new instructions.',null,'normal','https://epr.cpcb.gov.in/']
   ];
   for(const [title,description,due,priority,url] of tasks){
@@ -98,7 +98,7 @@ export default {async fetch(request,env){
   const u=new URL(request.url);
   if (!sameOrigin(request) && request.method!=="GET") return json({error:"Cross-site request blocked"},403);
   try{
-    if(u.pathname==="/api/health"){await env.DB.prepare("SELECT 1 FROM launch_health LIMIT 1").all();return json({ok:true,service:"eprtrack",version:"launch-candidate"},200,{"cache-control":"no-store"});}
+    if(u.pathname==="/api/health"){await env.DB.prepare("SELECT 1 FROM launch_health LIMIT 1").all();return json({ok:true,service:"eprtrack",version:"free-public-beta"},200,{"cache-control":"no-store"});}
 
     // Server-side CTA router: logged-in users go to dashboard; others go to account creation.
     if((u.pathname==="/save-track"||u.pathname==="/save-track/")&&request.method==="GET"){
