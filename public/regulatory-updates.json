@@ -1,0 +1,39 @@
+{
+  "lastReviewed": "2026-11-26",
+  "items": [
+    {
+      "id": "2026-gsr237e",
+      "date": "2026-03-31",
+      "type": "Enacted amendment",
+      "title": "Plastic Waste Management (Amendment) Rules, 2026",
+      "roles": [
+        "producer",
+        "importer",
+        "brand-owner"
+      ],
+      "categories": [
+        "I",
+        "II",
+        "III"
+      ],
+      "summary": "Recycled-content provisions were revised, including statutory exemptions, treatment of multilayer plastic and specific importer fulfilment rules.",
+      "action": "Review the applicable packaging basis, exemption evidence and official certificate mechanism before relying on planning estimates.",
+      "source": "https://egazette.gov.in/writeReadData/2026/271465.pdf"
+    },
+    {
+      "id": "2026-portal-migration",
+      "date": "2026-06-28",
+      "type": "Portal notice",
+      "title": "Migration to Common EPR Portal",
+      "roles": [
+        "producer",
+        "importer",
+        "brand-owner"
+      ],
+      "categories": [],
+      "summary": "The old plastic packaging portal was discontinued and data transferred to the Common EPR Portal.",
+      "action": "Compare migrated records against your previous records and report any discrepancies through the Common EPR Portal.",
+      "source": "https://eprplastic.cpcb.gov.in/"
+    }
+  ]
+}

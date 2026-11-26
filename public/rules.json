@@ -1,7 +1,7 @@
 {
-  "version": "FY2026-27-initial",
-  "verified_on": "2026-09-16",
-  "source": "https://eprplastic.cpcb.gov.in/plastic/downloads/Plastic_Waste_Management_2026.pdf",
+  "version": "FY2026-27-GSR237E-reference",
+  "verified_on": "2026-11-26",
+  "source": "https://egazette.gov.in/writeReadData/2026/271465.pdf",
   "recycled_content_rate": {
     "I": 0.4,
     "II": 0.1,
@@ -13,5 +13,15 @@
     "II": 0.5,
     "III": 0.5,
     "IV": 0.7
+  },
+  "recycling_source": "https://eprplastic.cpcb.gov.in/plastic/downloads/4th%20Amendment%20%28EPR%20guidelines%29%20Feb%202022.pdf",
+  "notes": {
+    "producer": "Use the applicable manufactured packaging basis. Check statutory exemptions and any eligible carry-forward; the arithmetic is not a legal obligation determination.",
+    "importer": "Use the applicable imported packaging basis. The March 2026 amendment specifies certificate-based fulfilment of the recycled-content obligation; recycled plastic in imported material does not count towards fulfilment. Check applicable exemptions and portal instructions.",
+    "brand-owner": "Use the applicable packaging-used basis. Check statutory exemptions, applicable carry-forward and reuse provisions separately."
+  },
+  "category_notes": {
+    "III": "Recycled-content calculation applies only to the plastic layers' weight, not total multilayer packaging weight.",
+    "IV": "No recycled-content rate is listed in the cited table. The recycling threshold refers to industrial composting. Category V and other roles are not supported by this calculator."
   }
 }

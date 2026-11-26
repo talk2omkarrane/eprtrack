@@ -1,4 +1,4 @@
-const CORS={"access-control-allow-origin":"*","access-control-allow-headers":"content-type,authorization","access-control-allow-methods":"GET,POST,PUT,DELETE,OPTIONS"};
+const CORS={"x-content-type-options":"nosniff","referrer-policy":"strict-origin-when-cross-origin","x-frame-options":"DENY"};
 const json=(data,status=200,extra={})=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json","cache-control":"no-store",...CORS,...extra}});
 const enc=new TextEncoder();
 const roles=new Set(["producer","importer","brand-owner"]);
@@ -92,13 +92,15 @@ async function seedWorkspaceTasks(env,company){
     await env.DB.prepare("INSERT INTO workspace_tasks(company_id,title,description,due_date,status,priority,source_url) VALUES(?,?,?,?,?,?,?)").bind(company.id,title,description,due,'open',priority,url).run();
   }
 }
+async function readBody(request){const raw=await request.text();if(raw.length>65536)throw Object.assign(new Error("Request body too large"),{status:413});let value;try{value=JSON.parse(raw)}catch{throw Object.assign(new Error("Invalid JSON"),{status:400})}if(!value||typeof value!=="object"||Array.isArray(value))throw Object.assign(new Error("Expected a JSON object"),{status:400});return value}
+async function authThrottle(env,request,email,mode){const ip=request.headers.get("CF-Connecting-IP")||"local";const bucket=Math.floor(Date.now()/900000);await env.DB.prepare("CREATE TABLE IF NOT EXISTS auth_rate_windows (key TEXT PRIMARY KEY, bucket INTEGER NOT NULL, attempts INTEGER NOT NULL)").run();const keys=[["ip:"+ip,mode==="register"?20:40],["email:"+email,10]];for(const [key,limit] of keys){const digest=hex(await crypto.subtle.digest("SHA-256",enc.encode(mode+":"+key)));const row=await env.DB.prepare("INSERT INTO auth_rate_windows(key,bucket,attempts) VALUES(?,?,1) ON CONFLICT(key) DO UPDATE SET attempts=CASE WHEN bucket=excluded.bucket THEN attempts+1 ELSE 1 END,bucket=excluded.bucket RETURNING attempts").bind(digest,bucket).first();if(Number(row.attempts)>limit)return false}if(Math.random()<.02)await env.DB.prepare("DELETE FROM auth_rate_windows WHERE bucket<?").bind(bucket-96).run();return true}
 function redirect(url){return new Response(null,{status:302,headers:{location:url}})}
 export default {async fetch(request,env){
   if(request.method==="OPTIONS")return new Response("",{headers:CORS});
   const u=new URL(request.url);
   if (!sameOrigin(request) && request.method!=="GET") return json({error:"Cross-site request blocked"},403);
   try{
-    if(u.pathname==="/api/health"){await env.DB.prepare("SELECT 1 FROM launch_health LIMIT 1").all();return json({ok:true,service:"eprtrack",version:"free-public-beta"},200,{"cache-control":"no-store"});}
+    if(u.pathname==="/api/health"){await env.DB.prepare("SELECT 1 FROM launch_health LIMIT 1").all();return json({ok:true,service:"eprtrack",version:"qa-2026-11-26"},200,{"cache-control":"no-store"});}
 
     // Server-side CTA router: logged-in users go to dashboard; others go to account creation.
     if((u.pathname==="/save-track"||u.pathname==="/save-track/")&&request.method==="GET"){
@@ -107,15 +109,16 @@ export default {async fetch(request,env){
     }
 
     if(u.pathname==="/api/calculator"&&request.method==="POST"){
-      const b=await request.json(),role=String(b.role||"").toLowerCase(),cat=String(b.category||"").toUpperCase(),tonnes=Number(b.tonnes);
+      const b=await readBody(request),role=String(b.role||"").toLowerCase(),cat=String(b.category||"").toUpperCase(),tonnes=Number(b.tonnes);
       if(b.tonnes==null||typeof b.tonnes==="boolean"||String(b.tonnes).trim()===""||!roles.has(role)||!["I","II","III","IV"].includes(cat)||!Number.isFinite(tonnes)||tonnes<0)return json({error:"Enter a valid role, category and quantity."},400);
       const r=await rules(env,request),rate=r.recycled_content_rate[cat];
-      return json({fy:"2026-27",role,role_label:labels[role],category:cat,input_tonnes:tonnes,recycled_content_rate:rate,indicative_recycled_content_tonnes:rate==null?null:tonnes*rate,minimum_recycling_rate_of_applicable_target:r.minimum_recycling_of_applicable_target[cat],rule_version:r.version,source:r.source,verified_on:r.verified_on});
+      return json({fy:"2026-27",role,role_label:labels[role],category:cat,input_tonnes:tonnes,recycled_content_rate:rate,indicative_recycled_content_tonnes:rate==null?null:tonnes*rate,minimum_recycling_rate_of_applicable_target:r.minimum_recycling_of_applicable_target[cat],rule_version:r.version,source:r.source,verified_on:r.verified_on,notes:r.notes[role],category_note:r.category_notes[cat]||""});
     }
 
     if(u.pathname==="/api/auth/register"&&request.method==="POST"){
-      const b=await request.json(),email=String(b.email||"").trim().toLowerCase(),pw=String(b.password||"");
-      if(!/^\S+@\S+\.\S+$/.test(email)||pw.length<8)return json({error:"Enter a valid email and a password of at least 8 characters."},400);
+      const b=await readBody(request),email=String(b.email||"").trim().toLowerCase(),pw=String(b.password||"");
+      if(!/^\S+@\S+\.\S+$/.test(email)||email.length>254||pw.length<12||pw.length>128)return json({error:"Enter a valid email and a password of 12–128 characters."},400);
+      if(!(await authThrottle(env,request,email,"register")))return json({error:"Too many attempts. Try again in 15 minutes."},429,{"retry-after":"900"});
       const existing=await env.DB.prepare("SELECT id FROM users WHERE email=? LIMIT 1").bind(email).first();
       if(existing)return json({error:"An account with this email already exists. Sign in instead."},409);
       const passwordHash=await hashPassword(pw);
@@ -142,10 +145,11 @@ export default {async fetch(request,env){
     }
 
     if(u.pathname==="/api/auth/login"&&request.method==="POST"){
-      const b=await request.json(),email=String(b.email||"").trim().toLowerCase(),pw=String(b.password||"");
+      const b=await readBody(request),email=String(b.email||"").trim().toLowerCase(),pw=String(b.password||"");
+      if(email.length>254||pw.length>128||!email||!pw)return json({error:"Invalid email or password."},401);
+      if(!(await authThrottle(env,request,email,"login")))return json({error:"Too many attempts. Try again in 15 minutes."},429,{"retry-after":"900"});
       const usr=await env.DB.prepare("SELECT id,email,password_hash FROM users WHERE email=? LIMIT 1").bind(email).first();
-      if(!usr)return json({error:"No account found for this email. Create an account first."},401);
-      if(!(await verifyPassword(pw,usr.password_hash)))return json({error:"Incorrect password."},401);
+      if(!usr||!(await verifyPassword(pw,usr.password_hash)))return json({error:"Invalid email or password."},401);
       const t=token();const sessionCol=await getSessionColumn(env);await env.DB.prepare(`INSERT INTO sessions(${sessionCol},user_id,expires_at) VALUES(?,?,datetime('now','+30 day'))`).bind(t,usr.id).run();
       return json({ok:true,user:{id:usr.id,email:usr.email}},200,{"set-cookie":sessionCookie(t)});
     }
@@ -158,7 +162,7 @@ export default {async fetch(request,env){
     }
     if(!user)return json({error:"Authentication required"},401);
     if(u.pathname==="/api/launch-records"){
-      const body=request.method==="GET"?null:await request.json();
+      const body=request.method==="GET"?null:await readBody(request);
       const cid=request.method==="GET"?u.searchParams.get("company_id"):body.company_id;
       const company=await ownership(env,user.id,cid);
       if(!company)return json({error:"Company not found"},404);
@@ -198,7 +202,7 @@ export default {async fetch(request,env){
     }
     if(u.pathname==="/api/companies"&&request.method==="POST"){
       // Multiple company workspaces are available during the free pilot.
-      const b=await request.json(),legalName=String(b.legal_name||"").trim(),role=String(b.role||"").toLowerCase(),category=String(b.category||"").toUpperCase(),state=String(b.state||"").trim(),fy=String(b.fy||"2026-27");
+      const b=await readBody(request),legalName=String(b.legal_name||"").trim(),role=String(b.role||"").toLowerCase(),category=String(b.category||"").toUpperCase(),state=String(b.state||"").trim(),fy=String(b.fy||"2026-27");
       if(!legalName||legalName.length>200||state.length>100||!/^20\d{2}-\d{2}$/.test(fy)||Number(fy.slice(5))!==(Number(fy.slice(0,4))+1)%100||!roles.has(role)||!["I","II","III","IV"].includes(category))return json({error:"Company name, role and packaging category are required."},400);
       const companyIdType=await columnType(env,"companies","id");
       let id;
@@ -220,17 +224,17 @@ export default {async fetch(request,env){
       return json(r.results||[]);
     }
     if(u.pathname==="/api/tasks"&&request.method==="POST"){
-      const b=await request.json();const cid=b.company_id;const company=await ownership(env,user.id,cid);if(!company)return json({error:'Company not found'},404);
+      const b=await readBody(request);const cid=b.company_id;const company=await ownership(env,user.id,cid);if(!company)return json({error:'Company not found'},404);
       await ensureWorkspaceTasks(env);
-      const title=String(b.title||'').trim();if(!title)return json({error:'Task title is required'},400);
-      const description=String(b.description||'').trim();const due=b.due_date?String(b.due_date):null;const priority=['low','normal','high'].includes(String(b.priority))?String(b.priority):'normal';
+      const title=String(b.title||'').trim();if(!title||title.length>120)return json({error:'Enter a task title of up to 120 characters'},400);
+      const description=String(b.description||'').trim();const due=b.due_date?String(b.due_date):null;if(description.length>2000||(due&&!/^\d{4}-\d{2}-\d{2}$/.test(due)))return json({error:'Invalid task description or date'},400);const priority=['low','normal','high'].includes(String(b.priority))?String(b.priority):'normal';
       await env.DB.prepare("INSERT INTO workspace_tasks(company_id,title,description,due_date,status,priority,source_url) VALUES(?,?,?,?,?,?,?)").bind(company.id,title,description,due,'open',priority,String(b.source_url||'')).run();
       return json({ok:true});
     }
     if(u.pathname==="/api/tasks"&&request.method==="PATCH"){
-      const b=await request.json();const id=Number(b.id);const task=await env.DB.prepare("SELECT * FROM workspace_tasks WHERE id=?").bind(id).first();if(!task)return json({error:'Task not found'},404);
+      const b=await readBody(request);const id=Number(b.id);const task=await env.DB.prepare("SELECT * FROM workspace_tasks WHERE id=?").bind(id).first();if(!task)return json({error:'Task not found'},404);
       const company=await ownership(env,user.id,task.company_id);if(!company)return json({error:'Task not found'},404);
-      const status=b.status==='done'?'done':'open';await env.DB.prepare("UPDATE workspace_tasks SET status=?,completed_at=? WHERE id=?").bind(status,status==='done'?new Date().toISOString():null,id).run();
+      if(!['done','open'].includes(b.status))return json({error:'Invalid task status'},400);const status=b.status;await env.DB.prepare("UPDATE workspace_tasks SET status=?,completed_at=? WHERE id=?").bind(status,status==='done'?new Date().toISOString():null,id).run();
       return json({ok:true});
     }
     if(u.pathname==="/api/compliance"&&request.method==="GET"){
@@ -239,7 +243,7 @@ export default {async fetch(request,env){
       return json({company,profile:profile||null});
     }
     if(u.pathname==="/api/compliance"&&request.method==="PUT"){
-      const b=await request.json(),company=await ownership(env,user.id,b.company_id);if(!company)return json({error:"Company not found"},404);
+      const b=await readBody(request),company=await ownership(env,user.id,b.company_id);if(!company)return json({error:"Company not found"},404);
       for(const k of ["epr_target_tonnes","recycling_required_tonnes","recycled_content_rate"]){if(b[k]!=null&&(typeof b[k]!=="number"||!Number.isFinite(b[k])||b[k]<0))return json({error:"Invalid compliance value"},400);}
       const input=Number(b.input_tonnes);if(b.input_tonnes==null||typeof b.input_tonnes==='boolean'||String(b.input_tonnes).trim()===''||!Number.isFinite(input)||input<0)return json({error:"Enter a valid planning quantity."},400);
       if(b.planning_only===true){
@@ -254,7 +258,8 @@ export default {async fetch(request,env){
     }
     return json({error:"Not found"},404);
   }catch(e){
-    console.error("EPRTrack worker error",{path:u.pathname,method:request.method,name:e?.name||"Error",message:e?.message||String(e),stack:e?.stack||""});
+    if(e?.status===400||e?.status===413)return json({error:e.message},e.status);
+    console.error("EPRTrack worker error",{path:u.pathname,method:request.method,name:e?.name||"Error"});
     return json({error:"Account service is temporarily unavailable. Please try again in a moment."},500);
   }
 }}
