@@ -169,23 +169,22 @@ export default {async fetch(request,env){
         return json({health:h?JSON.parse(h.summary):null,evidence:e.results||[]},200,{"cache-control":"no-store"});
       }
       if(request.method==="PUT"){
-        const h=body.health||{}, out={file:String(h.file||"").slice(0,250),checkedAt:new Date().toISOString()};
+        const h=body.health||{};if(h.fy!==fy||h.category!==company.category)return json({error:'Analysis must match the selected company financial year and category.'},400);const out={file:String(h.file||'').slice(0,250),fy,category:company.category,checkedAt:new Date().toISOString()};
         for(const k of ["records","valid","review","duplicates","missingPackaging","categoryIssues","packagingTonnes"]){const n=h[k];if(typeof n!=="number"||!Number.isFinite(n)||n<0||n>1e12||(k!=="packagingTonnes"&&!Number.isInteger(n)))return json({error:"Invalid summary"},400);out[k]=n;}
-        if(out.valid+out.review!==out.records)return json({error:"Invalid record totals"},400);
+        if(out.valid===0||out.valid+out.review!==out.records||['duplicates','missingPackaging','categoryIssues'].some(k=>out[k]>out.review))return json({error:"Invalid record totals"},400);
         await env.DB.prepare("INSERT INTO launch_health(company_id,fy,summary) VALUES(?,?,?) ON CONFLICT(company_id,fy) DO UPDATE SET summary=excluded.summary").bind(key,fy,JSON.stringify(out)).run();return json({ok:true});
       }
       if(request.method==="POST"){
         const ref=String(body.ref||"").trim(),qty=body.qty,party=String(body.party||"").trim(),note=String(body.note||"").trim();
         if(!ref||ref.length>200||typeof qty!=="number"||!Number.isFinite(qty)||qty<=0||qty>1e9||party.length>200||note.length>1000)return json({error:"Invalid evidence"},400);
-        const status=body.status==="reviewed"?"reviewed":"pending";
-        if(status==="reviewed"&&(!party||!note))return json({error:"Enter issuer and review notes"},400);
+        const status='pending';if(!party)return json({error:'Issuer is required.'},400);
         const result=await env.DB.prepare("INSERT OR IGNORE INTO launch_evidence(company_id,fy,ref,qty,party,status,note) VALUES(?,?,?,?,?,?,?)").bind(key,fy,ref,qty,party,status,note).run();
         if(!result.meta.changes)return json({error:"Reference already exists for this financial year"},409);
         return json({ok:true},201);
       }
       if(request.method==="PATCH"){
         const id=Number(body.id),note=String(body.note||"").trim();
-        if(!Number.isSafeInteger(id)||id<=0||note.length>1000||!note)return json({error:"Review note required"},400);
+        if(!['reviewed','pending'].includes(body.status)||!Number.isSafeInteger(id)||id<=0||note.length>1000||!note)return json({error:"Review note required"},400);
         const r=await env.DB.prepare("UPDATE launch_evidence SET status=?,note=? WHERE id=? AND company_id=? AND fy=? AND party<>''").bind(body.status==="reviewed"?"reviewed":"pending",note,id,key,fy).run();
         return r.meta.changes?json({ok:true}):json({error:"Evidence not found or issuer missing"},404);
       }
